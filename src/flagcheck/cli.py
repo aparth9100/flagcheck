@@ -49,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("source", type=Path)
     gen.add_argument("--command", required=True)
     gen.add_argument("--receiver", action="append", required=True, help="parser or argument-group variable; repeat as needed")
+    gen.add_argument("--scope", help="restrict extraction to one named module-level parser function")
+    gen.add_argument("--discover-groups", action="store_true", help="follow literal argument-group assignments within --scope")
     gen.add_argument("--complete", action="store_true", help="assert that the selected declarations form the entire parser")
     gen.add_argument("--no-abbrev", action="store_true")
     gen.add_argument("--implicit-help", action="store_true", help="confirm -h/--help for an indirect parser constructor")
@@ -63,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("--action-arity must have the form NAME=N (N >= 0)")
                 overrides[key] = int(number)
             flags, notes = extract_argparse(args.source.read_text(encoding="utf-8"), set(args.receiver),
-                                            action_arities=overrides, implicit_help=args.implicit_help)
+                                            action_arities=overrides, implicit_help=args.implicit_help,
+                                            scope=args.scope, discover_groups=args.discover_groups)
             if not flags:
                 raise ValueError("no literal flags found on selected receiver(s)")
             for note in notes:

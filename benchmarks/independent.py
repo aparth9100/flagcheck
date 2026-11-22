@@ -23,7 +23,7 @@ def inventory(zero: str, one: str, optional: str = "") -> dict[str, dict]:
 
 PROJECTS = {
     "build": {
-        "receivers": {"parser", "global_group", "verbosity_exclusive_group", "build_group", "config_exclusive_group", "install_group", "env_exclusive_group"},
+        "receivers": {"parser"}, "scope": "main_parser",
         "actions": {"NegativeCountAction": 0},
         "commands": ("build", "pyproject-build"),
         "flags": inventory(
@@ -31,14 +31,14 @@ PROJECTS = {
             "-o --outdir --sdist-extract-dir --report -C --config-setting --config-json --installer --env-dir --dependency-constraints-txt"),
     },
     "audit": {
-        "receivers": {"parser", "dep_source_args"}, "actions": {}, "commands": ("pip-audit",),
+        "receivers": {"parser"}, "scope": "_parser", "actions": {}, "commands": ("pip-audit",),
         "flags": inventory(
             "-h --help -V --version -l --local --locked -d --dry-run -S --strict -v --verbose --fix --require-hashes --skip-editable --no-deps --disable-pip",
             "-r --requirement -f --format -s --vulnerability-service --osv-url --cache-dir --progress-spinner --timeout --path --index-url --extra-index-url -o --output --ignore-vuln",
             "--desc --aliases"),
     },
     "markitdown": {
-        "receivers": {"parser", "cloud_group"}, "actions": {}, "commands": ("markitdown",),
+        "receivers": {"parser"}, "scope": "main", "actions": {}, "commands": ("markitdown",),
         "flags": inventory(
             "-h --help -v --version -d --use-docintel --use-cu --use-content-understanding -p --use-plugins --list-plugins --keep-data-uris",
             "-o --output -x --extension -m --mime-type -c --charset -e --endpoint --cu-endpoint --cu-analyzer --cu-file-types --docintel-model-id --docintel-query-fields --docintel-features"),
@@ -94,7 +94,7 @@ def main() -> int:
     data = parser.parse_args().data
     schemas = {}
     for name, cfg in PROJECTS.items():
-        flags, notes = extract_argparse((data/name/"cli.py").read_text(), cfg["receivers"], action_arities=cfg["actions"])
+        flags, notes = extract_argparse((data/name/"cli.py").read_text(), cfg["receivers"], action_arities=cfg["actions"], scope=cfg["scope"], discover_groups=True)
         assert not notes, (name, notes)
         assert flags == cfg["flags"], (name, set(flags) ^ set(cfg["flags"]), {k:(flags[k],cfg["flags"][k]) for k in flags.keys() & cfg["flags"].keys() if flags[k]!=cfg["flags"][k]})
         print(name, "reviewed spellings", len(flags), "long options", sum(f.startswith('--') for f in flags))

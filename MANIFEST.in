@@ -1,5 +1,5 @@
 include README.md LICENSE CHANGELOG.md CONTRIBUTING.md SECURITY.md
-include VALIDATION.md PHASE2_VALIDATION.md
+include VALIDATION.md PHASE2_VALIDATION.md PHASE6_VALIDATION.md
 include .pre-commit-hooks.yaml
 recursive-include examples *.json *.py *.sh
 recursive-include tests *.py

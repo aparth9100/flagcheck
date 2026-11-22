@@ -20,7 +20,7 @@ To try the verified first-alpha source directly without cloning, use its pinned 
 python -m pip install "git+https://github.com/aparth9100/flagcheck.git@0ebd42df3ef5e311f754f141c9babca1e2574b8b"
 ```
 
-After the alpha is available on PyPI, the equivalent registry installation is `python -m pip install --pre flagcheck`.
+The verified first alpha is now [available on PyPI](https://pypi.org/project/flagcheck/0.2.0a1/). Install that exact release with `python -m pip install flagcheck==0.2.0a1`. The scoped group discovery described below is a development feature, not part of that published alpha.
 
 Use the included example schema:
 
@@ -45,6 +45,14 @@ flagcheck schema-from-source examples/cli_example.py --command mytool --receiver
 ```
 
 The command emits JSON to stdout. Save it into a schema file after inspecting it. Repeat `--receiver` for explicitly identified argument groups. The AST extractor recognizes literal `add_argument` declarations, aliases, common actions, value counts and literal deprecation metadata. It never imports the Python file. It recognizes default `-h`/`--help` in a direct `argparse.ArgumentParser` constructor unless disabled; use `--implicit-help` only after verifying an indirect constructor. A directly qualified `argparse.BooleanOptionalAction` with positive long options generates their `--no-...` aliases; already-negative declarations or unqualified action names require review. For a custom action whose arity you have reviewed, specify, for example, `--action-arity NegativeCountAction=0`. For parsers with abbreviation disabled, pass `--no-abbrev`. It cannot infer dynamically constructed arguments, inherited parsers, plugin options or arbitrary runtime behavior. It combines conditional declarations. Only use `--complete` when you have independently verified the parser's complete option inventory; omissions could cause incorrect reports.
+
+For a parser constructed inside a module-level function, select that function and automatically follow direct, uniquely assigned argument groups:
+
+```sh
+flagcheck schema-from-source path/to/cli.py --command mytool --receiver parser --scope create_parser --discover-groups
+```
+
+`--scope` excludes nested functions, classes and comprehensions from extraction. `--discover-groups` follows direct `add_argument_group` and `add_mutually_exclusive_group` assignments, including nested groups. It requires an explicit scope and reports unresolved group assignments for review rather than assuming their contents. This is not general Python dataflow analysis: aliases, dynamic declarations, helper calls, nested scopes, reassignment and runtime behavior may require manual inspection. The schema remains incomplete by default; add `--complete` only after reviewing the full parser inventory and all notes.
 
 An example schema:
 
@@ -92,6 +100,6 @@ repos:
 
 ## Evidence and next milestone
 
-See `VALIDATION.md` for the original xml2rfc benchmark and `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown. The Phase 2 measurements cover reviewed literal option inventories, original files, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is feedback from a real, opt-in pilot integration and a verified registry release. The distribution name is provisional until successfully registered.
+See `VALIDATION.md` for the original xml2rfc benchmark, `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown, and `PHASE6_VALIDATION.md` for the scoped extractor checks against Bandit and PyPA Installer. These measurements cover reviewed literal option inventories, selected original files or snippets, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is feedback from a real, opt-in pilot integration. The first registry release passed its [build and publish workflow](https://github.com/aparth9100/flagcheck/actions/runs/45020748186).
 
 MIT licensed; source, docs and tests prepared with AI assistance for human review. The source is public; no external adoption is claimed.

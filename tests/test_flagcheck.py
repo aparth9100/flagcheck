@@ -165,6 +165,75 @@ class ScannerTests(unittest.TestCase):
 
 
 class SchemaAndCLITests(unittest.TestCase):
+    def test_scoped_group_discovery(self):
+        source = '''
+def parser_factory():
+    p = argparse.ArgumentParser()
+    group = p.add_argument_group('general')
+    nested: object = group.add_mutually_exclusive_group()
+    nested.add_argument('--fast', action='store_true')
+    group.add_argument('--output')
+    p.add_argument('--verbose', action='store_true')
+    def unrelated():
+        group.add_argument('--not-this')
+    return p
+def other():
+    p.add_argument('--unrelated')
+'''
+        flags, notes = extract_argparse(source, {"p"}, scope="parser_factory", discover_groups=True)
+        self.assertEqual({"-h", "--help", "--fast", "--output", "--verbose"}, set(flags))
+        self.assertEqual([], notes)
+
+    def test_group_discovery_requires_scope(self):
+        with self.assertRaisesRegex(ValueError, "function scope"):
+            extract_argparse("p.add_argument('--x')", {"p"}, discover_groups=True)
+
+    def test_group_discovery_reused_binding_requires_review(self):
+        source = '''
+def make():
+    p.add_argument('--known')
+    group = p.add_argument_group('general')
+    group = another_parser.add_argument_group('unrelated')
+    group.add_argument('--not-safe')
+'''
+        flags, notes = extract_argparse(source, {"p"}, scope="make", discover_groups=True)
+        self.assertEqual({"--known": {"nargs": 1}}, flags)
+        self.assertIn("unresolved argument group", notes[0])
+
+    def test_group_discovery_unassigned_group_requires_review(self):
+        source = "def make():\n    p.add_argument_group('x').add_argument('--x')"
+        flags, notes = extract_argparse(source, {"p"}, scope="make", discover_groups=True)
+        self.assertFalse(flags)
+        self.assertIn("unresolved argument group", notes[0])
+
+    def test_scope_ambiguous_or_missing(self):
+        for source in ("def other(): pass", "def make(): pass\ndef make(): pass"):
+            with self.assertRaisesRegex(ValueError, "exactly one module-level function"):
+                extract_argparse(source, {"p"}, scope="make")
+
+    def test_cli_group_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "cli.py"
+            source.write_text("def make():\n    p = argparse.ArgumentParser()\n    g = p.add_argument_group('x')\n    g.add_argument('--out')\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["schema-from-source", str(source), "--command", "app", "--receiver", "p",
+                             "--scope", "make", "--discover-groups", "--complete"])
+            self.assertEqual(0, code)
+            self.assertEqual({"nargs": 1}, json.loads(out.getvalue())["app"]["flags"]["--out"])
+
+    def test_cli_group_discovery_blocks_complete_on_unresolved_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "cli.py"
+            source.write_text("def make():\n    p.add_argument('--known')\n    p.add_argument_group('x').add_argument('--out')\n")
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(["schema-from-source", str(source), "--command", "app", "--receiver", "p",
+                             "--scope", "make", "--discover-groups", "--complete"])
+            self.assertEqual(2, code)
+            self.assertFalse(out.getvalue())
+            self.assertIn("unresolved argument group", err.getvalue())
+
     def test_static_extraction(self):
         flags, notes = extract_argparse("p.add_argument('-v','--verbose',action='store_true')\np.add_argument('--output')\nq.add_argument('--ignored')", {"p"})
         self.assertEqual({"-v": {"nargs": 0}, "--verbose": {"nargs": 0}, "--output": {"nargs": 1}}, flags)
