@@ -15,7 +15,7 @@ Flagcheck access to your repository, and scanned commands are never executed.
 
 2. Use a reviewed schema for one CLI you maintain. For a simple argparse parser,
    the first alpha can extract literal declarations; examine the output before
-   using it. The newer scoped group extraction is development-only.
+   using it. The newer scoped group extraction requires the second-alpha source.
 
    ```sh
    flagcheck schema-from-source path/to/cli.py --command mytool --receiver parser
@@ -54,7 +54,7 @@ use, rather than stars or simulated downloads, is the meaningful milestone.
 | Pilot | Status | Evidence |
 | --- | --- | --- |
 | Flagcheck development branch | Self-use | Reviewed CLI schema, CI self-check and mutation regression |
-| JMo Security | Developer-run external trial; no adoption | [Pinned case study](PHASE8_PILOT.md) reproduces known documentation errors |
+| JMo Security | Developer-run external trial; no adoption; feedback requested | [Pinned case study](PHASE8_PILOT.md), [Docker/YAML follow-up](PHASE9_VALIDATION.md), [issue discussion](https://github.com/jimmy058910/jmo-security-repo/issues/1050) |
 | JUnit2Context | Developer-run clean baseline; no adoption | [Pinned case study](PHASE8_PILOT.md) reports zero actual README findings |
 | Independent external projects | Not yet established | Record only voluntary usage or public, verifiable integrations |
 

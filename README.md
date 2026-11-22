@@ -1,6 +1,6 @@
 # Flagcheck — CLI option drift linter
 
-**0.2.0a2.dev0 — next-alpha development build.**
+**0.2.0a2 — second-alpha release candidate.**
 
 Flagcheck detects brittle long-option abbreviations, unknown long options, and explicitly marked deprecated options in static shell commands. It checks against a schema you review, not against a guessed universal list of CLI flags.
 
@@ -20,7 +20,7 @@ To try the verified first-alpha source directly without cloning, use its pinned 
 python -m pip install "git+https://github.com/aparth9100/flagcheck.git@0ebd42df3ef5e311f754f141c9babca1e2574b8b"
 ```
 
-The verified first alpha is now [available on PyPI](https://pypi.org/project/flagcheck/0.2.0a1/). Install that exact release with `python -m pip install flagcheck==0.2.0a1`. The scoped group discovery described below is a development feature, not part of that published alpha.
+The verified first alpha is [available on PyPI](https://pypi.org/project/flagcheck/0.2.0a1/). Install that exact release with `python -m pip install flagcheck==0.2.0a1`. The scoped group discovery and Docker/YAML support described below require the second-alpha source; they are not part of the first alpha.
 
 Use the included example schema:
 
@@ -84,10 +84,10 @@ Each command can also specify `subcommands`, a mapping of subcommand names to co
 For example, after verifying the image entrypoint and command schema:
 
 ```sh
-flagcheck scan --schema examples/schema.json --docker-image example/tool:1=tool --yaml docs/ compose.yaml
+flagcheck scan --schema examples/schema.json --docker-image example/mytool:1=mytool --cmd 'docker run --rm example/mytool:1 --verb'
 ```
 
-Docker options are parsed using a limited explicit inventory; unknown options, overridden entrypoints and dynamic image names are skipped. Values consumed by known Docker options are treated as single tokens; shell expansion can change the actual argv. Image mapping is a user assertion, not a Docker registry lookup or image inspection. Compose includes and interpolation in command lists are not interpreted. Invalid standalone YAML returns an input error; malformed fenced YAML is skipped and counted in `yaml_failures` under `--summary`.
+This illustrative command reports the `--verbose` suggestion without running Docker or looking up the example image. For your own files, replace `--cmd` and its argument with paths, and add `--yaml` for nonstandard YAML example locations. Docker options are parsed using a limited explicit inventory; unknown options, overridden entrypoints and dynamic image names are skipped. Values consumed by known Docker options are treated as single tokens; shell expansion can change the actual argv. Image mapping is a user assertion, not a Docker registry lookup or image inspection. Compose includes and interpolation in command lists are not interpreted. Invalid standalone YAML returns an input error; malformed fenced YAML is skipped and counted in `yaml_failures` under `--summary`.
 
 The scanner intentionally skips unsupported formats, unrecognized commands and ambiguous dynamic arguments. It is not a shell parser, a CLI semantic validator, or a substitute for actual CI. It consumes recognized argparse-style short-option clusters and attached values to avoid false long-option matches, but does not lint short option spellings. It does not support custom Make recipe prefixes, arbitrary Make `$(shell ...)` expansions, folded YAML blocks, PowerShell, fish, shell functions, aliases, dynamically constructed commands or all possible nested shell syntax. A finding's line refers to the beginning of the logical command; it can be the first line of a continuation. Treat results as review prompts, not automatic edits.
 

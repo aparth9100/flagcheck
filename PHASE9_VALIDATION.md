@@ -55,6 +55,7 @@ target maintainer before proposing fixes.
 Local unit tests include exact image matching, option value handling, entrypoint
 override and dynamic image skips, multi-document workflow line mapping, YAML
 fence opt-in and parse failure counters, literal Compose argv handling and
-invalid CLI mapping input. The dev version remains `0.2.0a2.dev0`. The next
-release needs passing cross-platform CI, a reviewed version bump and tag, and
-the existing approved release workflow. No registry publication is implied.
+invalid CLI mapping input. The development version was `0.2.0a2.dev0`.
+[Cross-platform CI](https://github.com/aparth9100/flagcheck/actions/runs/45026750249)
+passed. The second alpha is prepared separately and still requires release
+review and the existing tag-specific publication workflow.

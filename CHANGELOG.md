@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0a2.dev0 — development (unreleased)
+## 0.2.0a2 — second alpha (release candidate, unpublished)
 
 - Extract positive and generated negative aliases of directly qualified `argparse.BooleanOptionalAction` declarations without importing or executing target code.
 - Clarify installation from the verified initial-alpha commit and publish the actual CI evidence.

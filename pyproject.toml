@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flagcheck"
-version = "0.2.0a2.dev0"
+version = "0.2.0a2"
 description = "Conservative, schema-driven command-line flag linter"
 readme = "README.md"
 requires-python = ">=3.10"

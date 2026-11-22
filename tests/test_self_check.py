@@ -1,7 +1,11 @@
 import json
+import io
+import shlex
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
+from flagcheck.cli import main
 from flagcheck.schema import extract_argparse, load_schema
 from flagcheck.scanner import ScanStats, scan_text
 
@@ -44,3 +48,15 @@ class SelfCheckTests(unittest.TestCase):
         stats = ScanStats()
         self.assertEqual([], scan_text(workflow, schema, 'workflow', stats=stats))
         self.assertGreater(stats.checked_long_options, 0)
+
+    def test_documented_docker_example_runs_against_example_schema(self):
+        readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+        example, = (line for line in readme.splitlines()
+                    if line.startswith('flagcheck scan --schema examples/schema.json --docker-image '))
+        argv = shlex.split(example)[1:]
+        argv[argv.index('--schema') + 1] = str(ROOT / 'examples/schema.json')
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(1, main([*argv, '--format', 'json']))
+        finding, = json.loads(output.getvalue())
+        self.assertEqual((finding['command'], finding['flag'], finding['suggestion']),
+                         ('mytool', '--verb', '--verbose'))
