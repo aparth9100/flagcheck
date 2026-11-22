@@ -1,6 +1,6 @@
 # Flagcheck — CLI option drift linter
 
-**0.2.0a2 — second-alpha release candidate.**
+**0.2.0a2 — second public alpha.**
 
 Flagcheck detects brittle long-option abbreviations, unknown long options, and explicitly marked deprecated options in static shell commands. It checks against a schema you review, not against a guessed universal list of CLI flags.
 
@@ -8,19 +8,20 @@ It is intended for maintainers who control a CLI and want their own Makefile, CI
 
 ## Quick start
 
-Python 3.10+ and PyYAML are required. Install from this source directory:
+Python 3.10+ is required. Install the [second alpha from PyPI](https://pypi.org/project/flagcheck/0.2.0a2/):
+
+```sh
+python -m pip install flagcheck==0.2.0a2
+python -m flagcheck --version
+```
+
+The expected version is `0.2.0a2`. PyYAML is installed automatically. For the examples below, download or clone the [matching source tag](https://github.com/aparth9100/flagcheck/tree/v0.2.0a2) and run the commands from its root directory. To develop from a local checkout, use:
 
 ```sh
 python -m pip install .
 ```
 
-To try the verified first-alpha source directly without cloning, use its pinned Git commit:
-
-```sh
-python -m pip install "git+https://github.com/aparth9100/flagcheck.git@0ebd42df3ef5e311f754f141c9babca1e2574b8b"
-```
-
-The verified first alpha is [available on PyPI](https://pypi.org/project/flagcheck/0.2.0a1/). Install that exact release with `python -m pip install flagcheck==0.2.0a1`. The scoped group discovery and Docker/YAML support described below require the second-alpha source; they are not part of the first alpha.
+The scoped group discovery and Docker/YAML support described below are available in the published second alpha.
 
 Use the included example schema:
 
@@ -97,12 +98,12 @@ The scanner intentionally skips unsupported formats, unrecognized commands and a
 python -m unittest discover -s tests -v
 ```
 
-The test suite uses the standard library `unittest`. The [initial alpha CI](https://github.com/aparth9100/flagcheck/actions/runs/45015271703) passed on Linux with Python 3.10–3.13 and on Windows and macOS with Python 3.12. To try the pre-commit hook from the pinned initial alpha commit, configure it as follows (replace the example schema path with your reviewed schema):
+The test suite uses the standard library `unittest`. The [initial alpha CI](https://github.com/aparth9100/flagcheck/actions/runs/45015271703) passed on Linux with Python 3.10–3.13 and on Windows and macOS with Python 3.12. The [second alpha build and publication](https://github.com/aparth9100/flagcheck/actions/runs/45032055436) passed all 77 tests and package checks. To try the pre-commit hook from the published second-alpha tag, configure it as follows (replace the example schema path with your reviewed schema):
 
 ```yaml
 repos:
   - repo: https://github.com/aparth9100/flagcheck
-    rev: 0ebd42df3ef5e311f754f141c9babca1e2574b8b
+    rev: v0.2.0a2
     hooks:
       - id: flagcheck
         args: [--schema, path/to/schema.json]
