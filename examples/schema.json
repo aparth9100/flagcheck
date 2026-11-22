@@ -1,0 +1,13 @@
+{
+  "mytool": {
+    "complete": true,
+    "allow_abbrev": true,
+    "flags": {
+      "-h": {"nargs": 0},
+      "--help": {"nargs": 0},
+      "--verbose": {"nargs": 0},
+      "--output": {"nargs": 1},
+      "--legacy": {"nargs": 0, "deprecated": true, "replacement": "--verbose"}
+    }
+  }
+}

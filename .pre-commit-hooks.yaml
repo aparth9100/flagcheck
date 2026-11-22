@@ -1,0 +1,7 @@
+- id: flagcheck
+  name: flagcheck
+  description: Check long options against a reviewed schema
+  entry: flagcheck scan
+  language: python
+  files: '(^|/)([Mm]akefile|GNUmakefile)$|\.mk$|\.(sh|bash|zsh|md|markdown)$|(^|/)\.github/workflows/.*\.ya?ml$'
+  require_serial: true
