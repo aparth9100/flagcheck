@@ -1,0 +1,143 @@
+{
+  "jmo": {
+    "complete": true,
+    "allow_abbrev": true,
+    "flags": {
+      "--help": {
+        "nargs": 0
+      },
+      "--version": {
+        "nargs": 0
+      },
+      "-h": {
+        "nargs": 0
+      }
+    },
+    "subcommands": {
+      "scan": {
+        "complete": true,
+        "allow_abbrev": true,
+        "flags": {
+          "--allow-missing-tools": {
+            "nargs": 0
+          },
+          "--api-spec": {
+            "nargs": 1
+          },
+          "--cloudformation": {
+            "nargs": 1
+          },
+          "--collect-metadata": {
+            "nargs": 0
+          },
+          "--config": {
+            "nargs": 1
+          },
+          "--dest": {
+            "nargs": 1
+          },
+          "--encrypt-findings": {
+            "nargs": 0
+          },
+          "--fail-on-store-error": {
+            "nargs": 0
+          },
+          "--gitlab-repo": {
+            "nargs": 1
+          },
+          "--gitlab-token": {
+            "nargs": 1
+          },
+          "--gitlab-url": {
+            "nargs": 1
+          },
+          "--help": {
+            "nargs": 0
+          },
+          "--history-db": {
+            "nargs": 1
+          },
+          "--human-logs": {
+            "nargs": 0
+          },
+          "--image": {
+            "nargs": 1
+          },
+          "--images-file": {
+            "nargs": 1
+          },
+          "--k8s-all-namespaces": {
+            "nargs": 0
+          },
+          "--k8s-context": {
+            "nargs": 1
+          },
+          "--k8s-manifest": {
+            "nargs": 1
+          },
+          "--k8s-namespace": {
+            "nargs": 1
+          },
+          "--log-level": {
+            "nargs": 1
+          },
+          "--memory-budget": {
+            "nargs": 1
+          },
+          "--no-resume": {
+            "nargs": 0
+          },
+          "--no-store-history": {
+            "nargs": 0
+          },
+          "--no-store-raw-findings": {
+            "nargs": 0
+          },
+          "--repo": {
+            "nargs": 1
+          },
+          "--repos-dir": {
+            "nargs": 1
+          },
+          "--results-dir": {
+            "nargs": 1
+          },
+          "--resume": {
+            "nargs": 0
+          },
+          "--skip-tools": {
+            "nargs": "*"
+          },
+          "--targets": {
+            "nargs": 1
+          },
+          "--terraform-state": {
+            "nargs": 1
+          },
+          "--threads": {
+            "nargs": 1
+          },
+          "--timeout": {
+            "nargs": 1
+          },
+          "--tools": {
+            "nargs": "*"
+          },
+          "--tsv": {
+            "nargs": 1
+          },
+          "--url": {
+            "nargs": 1
+          },
+          "--urls-file": {
+            "nargs": 1
+          },
+          "-h": {
+            "nargs": 0
+          }
+        },
+        "subcommands": {}
+      }
+    }
+  }
+}

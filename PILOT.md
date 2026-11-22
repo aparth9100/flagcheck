@@ -54,6 +54,8 @@ use, rather than stars or simulated downloads, is the meaningful milestone.
 | Pilot | Status | Evidence |
 | --- | --- | --- |
 | Flagcheck development branch | Self-use | Reviewed CLI schema, CI self-check and mutation regression |
+| JMo Security | Developer-run external trial; no adoption | [Pinned case study](PHASE8_PILOT.md) reproduces known documentation errors |
+| JUnit2Context | Developer-run clean baseline; no adoption | [Pinned case study](PHASE8_PILOT.md) reports zero actual README findings |
 | Independent external projects | Not yet established | Record only voluntary usage or public, verifiable integrations |
 
 The project benchmarks are documented separately. They are not pilot adopters.
