@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,24 +68,111 @@ def _literal(node: ast.AST, default: object = None) -> object:
         return default
 
 
+def _scope_nodes(tree: ast.Module, function: str | None) -> list[ast.AST]:
+    if function is None:
+        return list(ast.walk(tree))
+    matches = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and node.name == function]
+    if len(matches) != 1:
+        raise ValueError(f"expected exactly one module-level function named {function!r}")
+    # Do not descend into nested lexical scopes: a reused variable name in a
+    # nested function, class or comprehension is not the selected parser.
+    nodes: list[ast.AST] = []
+    barriers = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda,
+                ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+    def visit(node: ast.AST) -> None:
+        nodes.append(node)
+        if not isinstance(node, barriers):
+            for child in ast.iter_child_nodes(node):
+                visit(child)
+
+    args = matches[0].args
+    nodes.extend([*args.posonlyargs, *args.args, *args.kwonlyargs])
+    nodes.extend(arg for arg in (args.vararg, args.kwarg) if arg is not None)
+    for node in matches[0].body:
+        visit(node)
+    return nodes
+
+
+def _discover_groups(nodes: list[ast.AST], roots: set[str]) -> tuple[set[str], list[str]]:
+    """Follow uniquely assigned, direct argument-group constructors only."""
+    bindings: Counter[str] = Counter()
+    candidates = []
+    methods = {"add_argument_group", "add_mutually_exclusive_group"}
+    for node in nodes:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bindings[node.id] += 1
+        elif isinstance(node, ast.arg):
+            bindings[node.arg] += 1
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            bindings.update({name: 2 for name in node.names})
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            bindings.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bindings[node.name] += 1
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+            bindings[node.name] += 1
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            bindings[node.rest] += 1
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        call = node.value
+        if (len(targets) == 1 and isinstance(targets[0], ast.Name)
+                and isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and isinstance(call.func.value, ast.Name) and call.func.attr in methods):
+            candidates.append((targets[0].id, call.func.value.id, call))
+
+    selected = set(roots)
+    resolved = set()
+    notes = []
+    active = {name for name in roots if bindings[name] <= 1}
+    for name in sorted(roots - active):
+        notes.append(f"receiver {name!r} has multiple bindings; group discovery requires review")
+    while True:
+        added = set()
+        for name, owner, call in candidates:
+            if owner in active and bindings[name] == 1:
+                resolved.add(id(call))
+                added.add(name)
+        if added <= active:
+            break
+        active.update(added)
+    selected.update(active)
+    for node in nodes:
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id in selected
+                and node.func.attr in methods and id(node) not in resolved):
+            notes.append(f"line {node.lineno}: unresolved argument group; review receiver manually")
+    return selected, notes
+
+
 def extract_argparse(source: str, receivers: set[str], *,
                      action_arities: dict[str, int] | None = None,
-                     implicit_help: bool = False) -> tuple[dict, list[str]]:
+                     implicit_help: bool = False, scope: str | None = None,
+                     discover_groups: bool = False) -> tuple[dict, list[str]]:
     """Extract literal add_argument calls on explicitly selected receivers.
 
     Does not import or execute source. Dynamic declarations are reported as
     limitations; mutually exclusive runtime branches are a union.
     """
     tree = ast.parse(source)
+    nodes = _scope_nodes(tree, scope)
+    if discover_groups and scope is None:
+        raise ValueError("group discovery requires an explicit module-level function scope")
     overrides = action_arities or {}
     if any(type(n) is not int or n < 0 for n in overrides.values()):
         raise ValueError("custom action arities must be nonnegative integers")
     flags: dict[str, dict] = {}
     notes: list[str] = []
+    if discover_groups:
+        receivers, discovery_notes = _discover_groups(nodes, receivers)
+        notes.extend(discovery_notes)
     no_value = {"store_true", "store_false", "store_const", "append_const", "count", "help", "version"}
     # Direct constructor calls are the only case where we infer implicit help.
     # Indirect factories and wrappers require explicit reviewer confirmation.
-    for node in ast.walk(tree):
+    for node in nodes:
         if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -112,7 +200,7 @@ def extract_argparse(source: str, receivers: set[str], *,
     if implicit_help:
         flags.update({"-h": {"nargs": 0}, "--help": {"nargs": 0}})
 
-    for node in ast.walk(tree):
+    for node in nodes:
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             continue
         if node.func.attr != "add_argument" or not isinstance(node.func.value, ast.Name):
@@ -134,6 +222,18 @@ def extract_argparse(source: str, receivers: set[str], *,
         if action == "<dynamic>" and isinstance(action_node, (ast.Name, ast.Attribute)):
             action = ast.unparse(action_node)
         if isinstance(action, str) and action in no_value:
+            nargs = 0
+        elif (isinstance(action_node, ast.Attribute)
+              and isinstance(action_node.value, ast.Name)
+              and action_node.value.id == "argparse"
+              and action_node.attr == "BooleanOptionalAction"):
+            # argparse creates a negative alias for every long option. A
+            # custom action with a similar name is not assumed equivalent.
+            if any(name.startswith("--no-") for name in names):
+                notes.append(f"line {node.lineno}: negative BooleanOptionalAction declaration requires review")
+                continue
+            names = [alias for name in names for alias in
+                     ([name, "--no-" + name[2:]] if name.startswith("--") else [name])]
             nargs = 0
         elif isinstance(action, str) and action in {"store", "append", "extend"}:
             nargs = keywords.get("nargs", 1)

@@ -1,3 +1,4 @@
+import argparse
 import contextlib
 import io
 import json
@@ -162,8 +163,150 @@ class ScannerTests(unittest.TestCase):
     def test_workflow_ignores_non_job_run(self):
         self.assertEqual([], scan_text("run: tool --bogus", self.schema, "workflow"))
 
+    def test_docker_exact_mapping(self):
+        images = {"example/tool:1": "tool"}
+        for cmd in ('docker run --rm -it -v "$(pwd):/src" example/tool:1 --verb',
+                    'docker run --cpus="2" --env KEY=VALUE example/tool:1 --verb',
+                    'docker run --user $(id -u):$(id -g) example/tool:1 --verb'):
+            with self.subTest(cmd=cmd):
+                f, = scan_command(cmd, self.schema, docker_images=images)
+                self.assertEqual((f.command, f.flag, f.suggestion), ("tool", "--verb", "--verbose"))
+        self.assertEqual([], self.scan('docker run example/tool:1 --verb'))
+
+    def test_docker_unsupported_forms(self):
+        for cmd in ('docker run --entrypoint=other example/tool:1 --bogus',
+                    'docker run --entrypoint other example/tool:1 --bogus',
+                    'docker run --unknown example/tool:1 --bogus',
+                    'docker run --volume --rm example/tool:1 --bogus',
+                    'docker run example/tool:2 --bogus',
+                    'docker run "$IMAGE" --bogus', 'docker run $FLAGS example/tool:1 --bogus',
+                    'docker exec example/tool:1 --bogus', 'docker --context local run example/tool:1 --bogus',
+                    'docker run -e example/tool:1 --bogus'):
+            with self.subTest(cmd=cmd):
+                self.assertEqual([], scan_command(cmd, self.schema, docker_images={"example/tool:1": "tool"}))
+
+    def test_docker_workflow_multi_document(self):
+        doc = 'jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: docker run --rm example/tool:1 --verb\n'
+        findings = scan_text(doc + '---\n' + doc, self.schema, 'workflow', docker_images={"example/tool:1": "tool"})
+        self.assertEqual([(5, '--verb'), (11, '--verb')], [(f.line, f.flag) for f in findings])
+
+    def test_markdown_yaml_examples_opt_in(self):
+        doc = 'Text\n```yaml\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: tool --verb\n```\n```powershell\ntool --bogus\n```'
+        self.assertEqual([], scan_text(doc, self.schema, 'markdown'))
+        f, = scan_text(doc, self.schema, 'markdown', yaml_examples=True)
+        self.assertEqual((7, '--verb'), (f.line, f.flag))
+
+    def test_invalid_markdown_yaml_is_counted(self):
+        stats = ScanStats()
+        doc = '```yaml\nkey: [\n```\n```sh\ntool --verb\n```'
+        self.assertEqual(['--verb'], [f.flag for f in scan_text(doc, self.schema, 'markdown', yaml_examples=True, stats=stats)])
+        self.assertEqual(1, stats.yaml_failures)
+
+    def test_compose_argv_is_not_shell(self):
+        doc = 'services:\n  a:\n    image: example/tool:1\n    command:\n      - --output\n      - "--bogus; tool --bogus"\n      - --verb\n'
+        stats = ScanStats()
+        f, = scan_text(doc, self.schema, 'compose', docker_images={"example/tool:1": "tool"}, stats=stats)
+        self.assertEqual((5, '--verb'), (f.line, f.flag))
+        self.assertEqual(1, stats.matched_invocations)
+        self.assertEqual([], scan_text(doc, self.schema, 'compose'))
+
+    def test_compose_overrides_and_dynamic_values_are_skipped(self):
+        for body in ('image: example/tool:1\n    entrypoint: []\n    command: [--bogus]',
+                     'image: example/tool:1\n    build: .\n    command: [--bogus]',
+                     'image: example/tool:1\n    extends: base\n    command: [--bogus]',
+                     'image: example/tool:1\n    command: [--bogus, "$FLAGS"]',
+                     'image: example/tool:1\n    command: "--bogus"',
+                     'image: example/tool:1\n    image: other\n    command: [--bogus]',
+                     'image: example/tool:1\n    <<: {entrypoint: other}\n    command: [--bogus]'):
+            with self.subTest(body=body):
+                doc = 'services:\n  a:\n    ' + body
+                self.assertEqual([], scan_text(doc, self.schema, 'compose', docker_images={"example/tool:1": "tool"}))
+
+    def test_cli_docker_mapping_and_yaml_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = Path(tmp) / 'schema.json'
+            schema_path.write_text('{"tool":{"complete":true,"flags":{"--verbose":{"nargs":0}}}}')
+            file = Path(tmp) / 'example.yml'
+            file.write_text('services:\n  a:\n    image: example/tool:1\n    command: [--verb]\n')
+            args = ['scan', '--schema', str(schema_path), '--docker-image', 'example/tool:1=tool']
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(1, main([*args, '--yaml', str(file)]))
+                self.assertIn('--verb', out.getvalue())
+                self.assertEqual(2, main([*args, str(file)]))
+                self.assertEqual(2, main([*args, '--docker-image', 'example/tool:1=tool', '--cmd', 'tool --verb']))
+                self.assertEqual(2, main(['scan', '--schema', str(schema_path), '--docker-image', 'example/tool:1=unknown', '--cmd', 'tool --verb']))
+
 
 class SchemaAndCLITests(unittest.TestCase):
+    def test_scoped_group_discovery(self):
+        source = '''
+def parser_factory():
+    p = argparse.ArgumentParser()
+    group = p.add_argument_group('general')
+    nested: object = group.add_mutually_exclusive_group()
+    nested.add_argument('--fast', action='store_true')
+    group.add_argument('--output')
+    p.add_argument('--verbose', action='store_true')
+    def unrelated():
+        group.add_argument('--not-this')
+    return p
+def other():
+    p.add_argument('--unrelated')
+'''
+        flags, notes = extract_argparse(source, {"p"}, scope="parser_factory", discover_groups=True)
+        self.assertEqual({"-h", "--help", "--fast", "--output", "--verbose"}, set(flags))
+        self.assertEqual([], notes)
+
+    def test_group_discovery_requires_scope(self):
+        with self.assertRaisesRegex(ValueError, "function scope"):
+            extract_argparse("p.add_argument('--x')", {"p"}, discover_groups=True)
+
+    def test_group_discovery_reused_binding_requires_review(self):
+        source = '''
+def make():
+    p.add_argument('--known')
+    group = p.add_argument_group('general')
+    group = another_parser.add_argument_group('unrelated')
+    group.add_argument('--not-safe')
+'''
+        flags, notes = extract_argparse(source, {"p"}, scope="make", discover_groups=True)
+        self.assertEqual({"--known": {"nargs": 1}}, flags)
+        self.assertIn("unresolved argument group", notes[0])
+
+    def test_group_discovery_unassigned_group_requires_review(self):
+        source = "def make():\n    p.add_argument_group('x').add_argument('--x')"
+        flags, notes = extract_argparse(source, {"p"}, scope="make", discover_groups=True)
+        self.assertFalse(flags)
+        self.assertIn("unresolved argument group", notes[0])
+
+    def test_scope_ambiguous_or_missing(self):
+        for source in ("def other(): pass", "def make(): pass\ndef make(): pass"):
+            with self.assertRaisesRegex(ValueError, "exactly one module-level function"):
+                extract_argparse(source, {"p"}, scope="make")
+
+    def test_cli_group_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "cli.py"
+            source.write_text("def make():\n    p = argparse.ArgumentParser()\n    g = p.add_argument_group('x')\n    g.add_argument('--out')\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["schema-from-source", str(source), "--command", "app", "--receiver", "p",
+                             "--scope", "make", "--discover-groups", "--complete"])
+            self.assertEqual(0, code)
+            self.assertEqual({"nargs": 1}, json.loads(out.getvalue())["app"]["flags"]["--out"])
+
+    def test_cli_group_discovery_blocks_complete_on_unresolved_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "cli.py"
+            source.write_text("def make():\n    p.add_argument('--known')\n    p.add_argument_group('x').add_argument('--out')\n")
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(["schema-from-source", str(source), "--command", "app", "--receiver", "p",
+                             "--scope", "make", "--discover-groups", "--complete"])
+            self.assertEqual(2, code)
+            self.assertFalse(out.getvalue())
+            self.assertIn("unresolved argument group", err.getvalue())
+
     def test_static_extraction(self):
         flags, notes = extract_argparse("p.add_argument('-v','--verbose',action='store_true')\np.add_argument('--output')\nq.add_argument('--ignored')", {"p"})
         self.assertEqual({"-v": {"nargs": 0}, "--verbose": {"nargs": 0}, "--output": {"nargs": 1}}, flags)
@@ -190,6 +333,26 @@ class SchemaAndCLITests(unittest.TestCase):
         flags, notes = extract_argparse(source, {"p"}, action_arities={"NegativeCountAction": 0})
         self.assertEqual({"-q": {"nargs": 0}, "--quiet": {"nargs": 0}}, flags)
         self.assertFalse(notes)
+
+    def test_boolean_optional_action_matches_argparse(self):
+        source = "p.add_argument('-c', '--cache', '--cache-enabled', action=argparse.BooleanOptionalAction)"
+        flags, notes = extract_argparse(source, {"p"})
+        parser = argparse.ArgumentParser(add_help=False)
+        action = parser.add_argument('-c', '--cache', '--cache-enabled', action=argparse.BooleanOptionalAction)
+        self.assertEqual({name: {"nargs": 0} for name in action.option_strings}, flags)
+        self.assertFalse(notes)
+        self.assertFalse(parser.parse_args(['--no-cache']).cache)
+        self.assertEqual([], scan_command("app --no-cache --cache-enabled", {"app": Command({name: Flag() for name in flags}, complete=True)}))
+
+    def test_boolean_optional_action_negative_declaration_requires_review(self):
+        flags, notes = extract_argparse("p.add_argument('--no-cache', action=argparse.BooleanOptionalAction)", {"p"})
+        self.assertFalse(flags)
+        self.assertIn("requires review", notes[0])
+
+    def test_boolean_optional_action_custom_name_requires_review(self):
+        flags, notes = extract_argparse("p.add_argument('--cache', action=BooleanOptionalAction)", {"p"})
+        self.assertFalse(flags)
+        self.assertIn("unsupported action", notes[0])
 
     def test_inherited_options_require_review(self):
         _, notes = extract_argparse("p = argparse.ArgumentParser(parents=[parent])\np.add_argument('--foo')", {"p"})

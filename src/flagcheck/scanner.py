@@ -36,6 +36,7 @@ class ScanStats:
     checked_long_options: int = 0
     lexer_failures: int = 0
     incomplete_invocations: int = 0
+    yaml_failures: int = 0
 
 
 @dataclass(frozen=True)
@@ -188,8 +189,43 @@ def _consume(args: list[Token], index: int, spec: Flag, attached: bool) -> int |
     return index + remaining + 1
 
 
+_DOCKER_SWITCHES = {"--rm", "-i", "-t", "-it", "-ti", "--interactive", "--tty", "--read-only", "--init", "-d", "--detach"}
+_DOCKER_VALUES = {"-v", "--volume", "--mount", "-e", "--env", "--env-file", "-w", "--workdir",
+                  "-u", "--user", "--network", "--memory", "-m", "--cpus", "--name", "--platform",
+                  "-p", "--publish", "--pull", "--cap-add", "--cap-drop", "--security-opt"}
+
+
+def _docker_target(args: list[Token], images: dict[str, str]) -> list[Token] | None:
+    """Map a narrow docker run form to reviewed image-entrypoint argv."""
+    if not args or args[0] != Token("run"):
+        return None
+    i = 1
+    while i < len(args):
+        token = args[i]
+        flag, sep, value = token.value.partition("=")
+        if not flag.startswith("-"):
+            if token.dynamic or token.value not in images:
+                return None
+            return [Token(images[token.value]), *args[i + 1:]]
+        if token.dynamic and (not sep or any(c in flag for c in "$`*?[]~")):
+            return None
+        if flag in _DOCKER_SWITCHES:
+            if sep and value not in {"true", "false"}:
+                return None
+            i += 1
+        elif flag in _DOCKER_VALUES:
+            if not sep and (i + 1 >= len(args) or args[i + 1].value.startswith("-")):
+                return None
+            i += 1 if sep else 2
+        else:
+            # In particular, never interpret an overridden --entrypoint.
+            return None
+    return None
+
+
 def _inspect(tokens: list[Token], schemas: dict[str, Command], source: str, line: int,
-             depth: int, stats: ScanStats | None = None) -> list[Finding]:
+             depth: int, stats: ScanStats | None = None,
+             docker_images: dict[str, str] | None = None) -> list[Finding]:
     i = 0
     while i < len(tokens) and (_ASSIGN.match(tokens[i].value) or tokens[i].value in {"env", "command", "exec", "time", "sudo", "do", "then", "else"}):
         i += 1
@@ -199,19 +235,23 @@ def _inspect(tokens: list[Token], schemas: dict[str, Command], source: str, line
         return []
     command = _basename(tokens[i].value)
     args = tokens[i + 1:]
+    if depth < 4 and command == "docker" and docker_images:
+        target = _docker_target(args, docker_images)
+        if target is not None:
+            return _inspect(target, schemas, source, line, depth + 1, stats, docker_images)
     # Narrow literal forms of commonly used project runners. Do not attempt to
     # interpret arbitrary runner options or dynamically selected executables.
     if depth < 4 and command in {"pipenv", "uv"} and len(args) >= 2 and args[0].value == "run" and not args[1].dynamic and not args[1].value.startswith("-"):
-        return _inspect(args[1:], schemas, source, line, depth + 1, stats)
+        return _inspect(args[1:], schemas, source, line, depth + 1, stats, docker_images)
     if depth < 4 and command == "uvx" and args:
         first = 2 if len(args) >= 3 and args[0].value == "--from" and not args[1].dynamic else 0
         if not args[first].dynamic and not args[first].value.startswith("-"):
-            return _inspect(args[first:], schemas, source, line, depth + 1, stats)
+            return _inspect(args[first:], schemas, source, line, depth + 1, stats, docker_images)
     if command in {"python", "python3"} and len(args) >= 2 and args[0].value == "-m" and not args[1].dynamic:
         command = args[1].value
         args = args[2:]
     if command in {"bash", "sh"} and depth < 2 and len(args) >= 2 and re.fullmatch(r"-[a-zA-Z]*c[a-zA-Z]*", args[0].value):
-        return scan_command(args[1].value, schemas, source, line, depth + 1, stats=stats)
+        return scan_command(args[1].value, schemas, source, line, depth + 1, stats=stats, docker_images=docker_images)
     spec = schemas.get(command)
     if spec is None:
         if stats is not None:
@@ -308,7 +348,8 @@ def _inspect(tokens: list[Token], schemas: dict[str, Command], source: str, line
 
 
 def scan_command(text: str, schemas: dict[str, Command], source: str = "<command>",
-                 line: int = 1, depth: int = 0, *, stats: ScanStats | None = None) -> list[Finding]:
+                 line: int = 1, depth: int = 0, *, stats: ScanStats | None = None,
+                 docker_images: dict[str, str] | None = None) -> list[Finding]:
     tokens = _lex(text.strip())
     if tokens is None:
         if stats is not None:
@@ -318,7 +359,7 @@ def scan_command(text: str, schemas: dict[str, Command], source: str = "<command
         stats.logical_commands += 1
     results: list[Finding] = []
     for segment in _segments(tokens):
-        results.extend(_inspect(segment, schemas, source, line, depth, stats))
+        results.extend(_inspect(segment, schemas, source, line, depth, stats, docker_images))
     return results
 
 
@@ -371,7 +412,7 @@ def _make(text: str):
         continuation = (len(body) - len(body.rstrip("\\"))) % 2 == 1
 
 
-def _markdown(text: str):
+def _markdown_blocks(text: str):
     fence = None
     language = ""
     block: list[tuple[int, str]] = []
@@ -383,11 +424,10 @@ def _markdown(text: str):
             language = names[0] if names else ""
             block = []
         elif fence and m and m[1][0] == fence[0] and len(m[1]) >= len(fence) and not m[2].strip():
-            if language in {"bash", "sh", "shell", "zsh", "console"}:
-                yield from _logical_lines(block)
+            yield language, block
             fence = None
-        elif fence and (language in {"bash", "sh", "shell", "zsh"} or (language == "console" and re.match(r"^\s*\$ ", line))):
-            block.append((number, re.sub(r"^\s*\$ ", "", line)))
+        elif fence and (language in {"bash", "sh", "shell", "zsh", "yaml", "yml"} or (language == "console" and re.match(r"^\s*\$ ", line))):
+            block.append((number, line if language in {"yaml", "yml"} else re.sub(r"^\s*\$ ", "", line)))
 
 
 def _mapping(node, key):
@@ -396,8 +436,7 @@ def _mapping(node, key):
     return None
 
 
-def _workflow(text: str):
-    root = yaml.compose(text, Loader=yaml.SafeLoader)
+def _workflow(root):
     jobs = _mapping(root, "jobs")
     if not isinstance(jobs, MappingNode):
         return
@@ -423,19 +462,74 @@ def _workflow(text: str):
             yield from _logical_lines(enumerate(run.value.splitlines(), start))
 
 
-def scan_text(text: str, schemas: dict[str, Command], kind: str = "shell", source: str = "<stdin>", *, stats: ScanStats | None = None) -> list[Finding]:
+def _literal_mapping(node) -> bool:
+    if not isinstance(node, MappingNode):
+        return False
+    keys = [key.value for key, _ in node.value if isinstance(key, ScalarNode)]
+    return len(keys) == len(node.value) == len(set(keys)) and "<<" not in keys
+
+
+def _compose(root, docker_images: dict[str, str]):
+    services = _mapping(root, "services")
+    if not _literal_mapping(root) or _mapping(root, "include") is not None or not _literal_mapping(services):
+        return
+    for _, service in services.value:
+        if not _literal_mapping(service) or any(_mapping(service, key) is not None for key in ("entrypoint", "extends", "build")):
+            continue
+        image = _mapping(service, "image")
+        command = _mapping(service, "command")
+        if not isinstance(image, ScalarNode) or image.value not in docker_images:
+            continue
+        if not isinstance(command, SequenceNode) or not command.value:
+            continue
+        if not all(isinstance(arg, ScalarNode) and arg.tag == "tag:yaml.org,2002:str" and "$" not in arg.value for arg in command.value):
+            continue
+        yield command.start_mark.line + 1, [Token(docker_images[image.value]), *[Token(arg.value) for arg in command.value]]
+
+
+def _scan_yaml(text, schemas, source, offset, stats, docker_images, *, strict=True, workflow=True, compose=True):
+    try:
+        roots = list(yaml.compose_all(text, Loader=yaml.SafeLoader))
+    except yaml.YAMLError:
+        if strict:
+            raise
+        if stats is not None:
+            stats.yaml_failures += 1
+        return []
+    results = []
+    for root in roots:
+        if workflow:
+            for number, command in _workflow(root):
+                results.extend(scan_command(command, schemas, source, number + offset, stats=stats, docker_images=docker_images))
+        if compose and docker_images:
+            for number, tokens in _compose(root, docker_images):
+                if stats is not None:
+                    stats.logical_commands += 1
+                results.extend(_inspect(tokens, schemas, source, number + offset, 0, stats, docker_images))
+    return results
+
+
+def scan_text(text: str, schemas: dict[str, Command], kind: str = "shell", source: str = "<stdin>", *, stats: ScanStats | None = None,
+              docker_images: dict[str, str] | None = None, yaml_examples: bool = False) -> list[Finding]:
+    def scan_lines(commands):
+        return [f for number, command in commands for f in scan_command(command, schemas, source, number, stats=stats, docker_images=docker_images)]
+
     if kind == "make":
-        commands = _logical_lines(_make(text))
+        return scan_lines(_logical_lines(_make(text)))
     elif kind == "markdown":
-        commands = _markdown(text)
-    elif kind == "workflow":
-        commands = _workflow(text)
-    else:
-        commands = _logical_lines(enumerate(text.splitlines(), 1))
-    return [f for number, command in commands for f in scan_command(command, schemas, source, number, stats=stats)]
+        results = []
+        for language, block in _markdown_blocks(text):
+            if language in {"bash", "sh", "shell", "zsh", "console"}:
+                results.extend(scan_lines(_logical_lines(block)))
+            elif yaml_examples and language in {"yaml", "yml"} and block:
+                results.extend(_scan_yaml("\n".join(line for _, line in block), schemas, source, block[0][0] - 1, stats, docker_images, strict=False))
+        return results
+    elif kind in {"workflow", "compose", "yaml"}:
+        return _scan_yaml(text, schemas, source, 0, stats, docker_images, workflow=kind != "compose", compose=kind != "workflow")
+    return scan_lines(_logical_lines(enumerate(text.splitlines(), 1)))
 
 
-def file_kind(path: Path) -> str | None:
+def file_kind(path: Path, *, yaml_examples: bool = False) -> str | None:
     if path.name.lower() in {"makefile", "gnumakefile"} or path.suffix == ".mk":
         return "make"
     if path.suffix.lower() in {".md", ".markdown"}:
@@ -444,4 +538,8 @@ def file_kind(path: Path) -> str | None:
         return "shell"
     if path.suffix.lower() in {".yml", ".yaml"} and ".github" in path.parts and "workflows" in path.parts:
         return "workflow"
+    if path.name.lower() in {"compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml"}:
+        return "compose"
+    if yaml_examples and path.suffix.lower() in {".yml", ".yaml"}:
+        return "yaml"
     return None

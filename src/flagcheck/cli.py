@@ -13,7 +13,7 @@ from flagcheck.schema import extract_argparse, load_schema
 from flagcheck.scanner import ScanStats, file_kind, scan_command, scan_text
 
 
-def _targets(paths: list[Path]):
+def _targets(paths: list[Path], *, yaml_examples: bool = False):
     seen: set[Path] = set()
     for root in paths:
         if not root.exists():
@@ -26,7 +26,7 @@ def _targets(paths: list[Path]):
             # Only ignore generated directories below a recursively scanned root.
             if root.is_dir() and any(p in {".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist"} for p in path.relative_to(root).parts[:-1]):
                 continue
-            kind = file_kind(path)
+            kind = file_kind(path, yaml_examples=yaml_examples)
             if kind is None or path.resolve() in seen:
                 continue
             seen.add(path.resolve())
@@ -44,11 +44,15 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--cmd", help="scan a single command instead of files")
     scan.add_argument("--summary", action="store_true", help="emit partial scan coverage counters as JSON to stderr")
     scan.add_argument("--require-match", action="store_true", help="return status 2 if no configured command was recognized")
+    scan.add_argument("--docker-image", action="append", default=[], metavar="IMAGE=COMMAND", help="reviewed literal Docker image entrypoint; repeat as needed")
+    scan.add_argument("--yaml", action="store_true", help="also scan workflow/Compose structures in other YAML files and Markdown YAML fences")
     scan.add_argument("paths", nargs="*", type=Path)
     gen = sub.add_parser("schema-from-source", help="extract literal argparse declarations without executing Python", allow_abbrev=False)
     gen.add_argument("source", type=Path)
     gen.add_argument("--command", required=True)
     gen.add_argument("--receiver", action="append", required=True, help="parser or argument-group variable; repeat as needed")
+    gen.add_argument("--scope", help="restrict extraction to one named module-level parser function")
+    gen.add_argument("--discover-groups", action="store_true", help="follow literal argument-group assignments within --scope")
     gen.add_argument("--complete", action="store_true", help="assert that the selected declarations form the entire parser")
     gen.add_argument("--no-abbrev", action="store_true")
     gen.add_argument("--implicit-help", action="store_true", help="confirm -h/--help for an indirect parser constructor")
@@ -63,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("--action-arity must have the form NAME=N (N >= 0)")
                 overrides[key] = int(number)
             flags, notes = extract_argparse(args.source.read_text(encoding="utf-8"), set(args.receiver),
-                                            action_arities=overrides, implicit_help=args.implicit_help)
+                                            action_arities=overrides, implicit_help=args.implicit_help,
+                                            scope=args.scope, discover_groups=args.discover_groups)
             if not flags:
                 raise ValueError("no literal flags found on selected receiver(s)")
             for note in notes:
@@ -75,17 +80,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd is not None and args.paths:
             raise ValueError("choose --cmd or file paths, not both")
         schemas = load_schema(args.schema)
+        docker_images = {}
+        for entry in args.docker_image:
+            image, sep, command = entry.partition("=")
+            if not sep or not image or any(c.isspace() or c in "$`*?[]~" for c in image) or command not in schemas or image in docker_images:
+                raise ValueError("--docker-image requires a unique literal IMAGE=COMMAND with COMMAND in the schema")
+            docker_images[image] = command
         stats = ScanStats()
         files_scanned = 0
         if args.cmd is not None:
-            findings = scan_command(args.cmd, schemas, stats=stats)
+            findings = scan_command(args.cmd, schemas, stats=stats, docker_images=docker_images)
         elif args.paths:
-            targets = list(_targets(args.paths))
+            targets = list(_targets(args.paths, yaml_examples=args.yaml))
             if not targets:
                 raise ValueError("no supported input files found")
             findings = []
             for path, kind in targets:
-                findings.extend(scan_text(path.read_text(encoding="utf-8"), schemas, kind, str(path), stats=stats))
+                findings.extend(scan_text(path.read_text(encoding="utf-8"), schemas, kind, str(path), stats=stats, docker_images=docker_images, yaml_examples=args.yaml))
                 files_scanned += 1
         else:
             raise ValueError("provide --cmd or at least one path")

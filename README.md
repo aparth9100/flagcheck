@@ -1,6 +1,6 @@
 # Flagcheck — CLI option drift linter
 
-**0.2.0a1 — experimental alpha.**
+**0.2.0a2 — second public alpha.**
 
 Flagcheck detects brittle long-option abbreviations, unknown long options, and explicitly marked deprecated options in static shell commands. It checks against a schema you review, not against a guessed universal list of CLI flags.
 
@@ -8,13 +8,20 @@ It is intended for maintainers who control a CLI and want their own Makefile, CI
 
 ## Quick start
 
-Python 3.10+ and PyYAML are required. Install from this source directory:
+Python 3.10+ is required. Install the [second alpha from PyPI](https://pypi.org/project/flagcheck/0.2.0a2/):
+
+```sh
+python -m pip install flagcheck==0.2.0a2
+python -m flagcheck --version
+```
+
+The expected version is `0.2.0a2`. PyYAML is installed automatically. For the examples below, download or clone the [matching source tag](https://github.com/aparth9100/flagcheck/tree/v0.2.0a2) and run the commands from its root directory. To develop from a local checkout, use:
 
 ```sh
 python -m pip install .
 ```
 
-After the alpha is available on PyPI, the equivalent registry installation is `python -m pip install --pre flagcheck`.
+The scoped group discovery and Docker/YAML support described below are available in the published second alpha.
 
 Use the included example schema:
 
@@ -38,7 +45,15 @@ Exit codes: 0 = no finding at the selected severity; 1 = finding; 2 = input/conf
 flagcheck schema-from-source examples/cli_example.py --command mytool --receiver parser --complete
 ```
 
-The command emits JSON to stdout. Save it into a schema file after inspecting it. Repeat `--receiver` for explicitly identified argument groups. The AST extractor recognizes literal `add_argument` declarations, aliases, common actions, value counts and literal deprecation metadata. It never imports the Python file. It recognizes default `-h`/`--help` in a direct `argparse.ArgumentParser` constructor unless disabled; use `--implicit-help` only after verifying an indirect constructor. For a custom action whose arity you have reviewed, specify, for example, `--action-arity NegativeCountAction=0`. For parsers with abbreviation disabled, pass `--no-abbrev`. It cannot infer dynamically constructed arguments, inherited parsers, plugin options or arbitrary runtime behavior. It combines conditional declarations. Only use `--complete` when you have independently verified the parser's complete option inventory; omissions could cause incorrect reports.
+The command emits JSON to stdout. Save it into a schema file after inspecting it. Repeat `--receiver` for explicitly identified argument groups. The AST extractor recognizes literal `add_argument` declarations, aliases, common actions, value counts and literal deprecation metadata. It never imports the Python file. It recognizes default `-h`/`--help` in a direct `argparse.ArgumentParser` constructor unless disabled; use `--implicit-help` only after verifying an indirect constructor. A directly qualified `argparse.BooleanOptionalAction` with positive long options generates their `--no-...` aliases; already-negative declarations or unqualified action names require review. For a custom action whose arity you have reviewed, specify, for example, `--action-arity NegativeCountAction=0`. For parsers with abbreviation disabled, pass `--no-abbrev`. It cannot infer dynamically constructed arguments, inherited parsers, plugin options or arbitrary runtime behavior. It combines conditional declarations. Only use `--complete` when you have independently verified the parser's complete option inventory; omissions could cause incorrect reports.
+
+For a parser constructed inside a module-level function, select that function and automatically follow direct, uniquely assigned argument groups:
+
+```sh
+flagcheck schema-from-source path/to/cli.py --command mytool --receiver parser --scope create_parser --discover-groups
+```
+
+`--scope` excludes nested functions, classes and comprehensions from extraction. `--discover-groups` follows direct `add_argument_group` and `add_mutually_exclusive_group` assignments, including nested groups. It requires an explicit scope and reports unresolved group assignments for review rather than assuming their contents. This is not general Python dataflow analysis: aliases, dynamic declarations, helper calls, nested scopes, reassignment and runtime behavior may require manual inspection. The schema remains incomplete by default; add `--complete` only after reviewing the full parser inventory and all notes.
 
 An example schema:
 
@@ -62,8 +77,18 @@ Each command can also specify `subcommands`, a mapping of subcommand names to co
 
 - Shell scripts (`.sh`, `.bash`, `.zsh`): simple literal command lines, common wrappers, chains, pipelines and backslash continuations. Limited literal `pipenv run`, `uv run` and `uvx [--from PACKAGE] COMMAND` forms are recognized.
 - Makefiles and `.mk`: tab-prefixed recipes, simple loops, continued lines, literal `bash -c`/`-cx` wrappers, automatic filename variables.
-- GitHub Actions workflows: `jobs.*.steps.*.run` scalar values for explicit `bash`/`sh` or default Ubuntu/macOS runners; literal multiline blocks.
+- GitHub Actions workflows: `jobs.*.steps.*.run` scalar values for explicit `bash`/`sh` or default Ubuntu/macOS runners; literal multiline blocks and multiple YAML documents.
 - Markdown: explicitly shell-tagged fenced snippets; console fences with `$ ` prompts.
+- Docker: opt in with `--docker-image IMAGE=COMMAND` for literal `docker run` commands and Compose `command` argv lists using the exact mapped image. Use a reviewed image version whose executable entrypoint matches the named schema command. Repeat the option for multiple images.
+- Compose: `compose.yml`, `compose.yaml`, `docker-compose.yml` and `docker-compose.yaml`; only literal string sequences for `command` and no entrypoint/build/extends/merge overrides. Use `--yaml` to also scan structurally recognized workflow or Compose examples in other YAML files and Markdown YAML fences.
+
+For example, after verifying the image entrypoint and command schema:
+
+```sh
+flagcheck scan --schema examples/schema.json --docker-image example/mytool:1=mytool --cmd 'docker run --rm example/mytool:1 --verb'
+```
+
+This illustrative command reports the `--verbose` suggestion without running Docker or looking up the example image. For your own files, replace `--cmd` and its argument with paths, and add `--yaml` for nonstandard YAML example locations. Docker options are parsed using a limited explicit inventory; unknown options, overridden entrypoints and dynamic image names are skipped. Values consumed by known Docker options are treated as single tokens; shell expansion can change the actual argv. Image mapping is a user assertion, not a Docker registry lookup or image inspection. Compose includes and interpolation in command lists are not interpreted. Invalid standalone YAML returns an input error; malformed fenced YAML is skipped and counted in `yaml_failures` under `--summary`.
 
 The scanner intentionally skips unsupported formats, unrecognized commands and ambiguous dynamic arguments. It is not a shell parser, a CLI semantic validator, or a substitute for actual CI. It consumes recognized argparse-style short-option clusters and attached values to avoid false long-option matches, but does not lint short option spellings. It does not support custom Make recipe prefixes, arbitrary Make `$(shell ...)` expansions, folded YAML blocks, PowerShell, fish, shell functions, aliases, dynamically constructed commands or all possible nested shell syntax. A finding's line refers to the beginning of the logical command; it can be the first line of a continuation. Treat results as review prompts, not automatic edits.
 
@@ -73,10 +98,36 @@ The scanner intentionally skips unsupported formats, unrecognized commands and a
 python -m unittest discover -s tests -v
 ```
 
-The test suite uses the standard library `unittest`. The included CI workflow targets Python 3.10–3.13 but has not been run on GitHub. The pre-commit hook is configured but is not publicly installable yet. When a repository and release tag exist, configure the hook with `args: [--schema, path/to/schema.json]`. For now you can invoke the CLI directly or use a local pre-commit hook passing that schema.
+The test suite uses the standard library `unittest`. The [initial alpha CI](https://github.com/aparth9100/flagcheck/actions/runs/45015271703) passed on Linux with Python 3.10–3.13 and on Windows and macOS with Python 3.12. The [second alpha build and publication](https://github.com/aparth9100/flagcheck/actions/runs/45032055436) passed all 77 tests and package checks. To try the pre-commit hook from the published second-alpha tag, configure it as follows (replace the example schema path with your reviewed schema):
+
+```yaml
+repos:
+  - repo: https://github.com/aparth9100/flagcheck
+    rev: v0.2.0a2
+    hooks:
+      - id: flagcheck
+        args: [--schema, path/to/schema.json]
+```
 
 ## Evidence and next milestone
 
-See `VALIDATION.md` for the original xml2rfc benchmark and `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown. The Phase 2 measurements cover reviewed literal option inventories, original files, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is review of a release candidate, check for existing similar tools and distribution-name availability, and decide whether to release. The distribution name is provisional; registry availability is not verified.
+See `VALIDATION.md` for the original xml2rfc benchmark, `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown, and `PHASE6_VALIDATION.md` for the scoped extractor checks against Bandit and PyPA Installer. These measurements cover reviewed literal option inventories, selected original files or snippets, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is feedback from a real, opt-in pilot integration. The first registry release passed its [build and publish workflow](https://github.com/aparth9100/flagcheck/actions/runs/45020748186).
 
-MIT licensed; source, docs and tests prepared with AI assistance for human review. No publication or external adoption is claimed.
+MIT licensed; source, docs and tests prepared with AI assistance for human review. The source is public; no external adoption is claimed.
+
+See `PHASE9_VALIDATION.md` for the Docker/YAML scanner's pinned JMo pilot results.
+
+## Try a pilot in your own CLI project
+
+Flagcheck's own development CI checks the documented commands using a reviewed
+schema. It also tests that the schema agrees with the literal parser declarations.
+Try the same self-check from a checkout of this development branch:
+
+```sh
+flagcheck scan --schema examples/flagcheck-schema.json --summary --require-match README.md PILOT.md .github/workflows/ci.yml
+```
+
+For an opt-in pilot in another project, start with the released alpha and one file
+that contains real CLI examples. See [PILOT.md](PILOT.md) for a small, reversible
+trial and how to report false positives or missed options. Self-use and benchmark
+results are not independent adoption.

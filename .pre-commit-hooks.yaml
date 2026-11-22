@@ -3,5 +3,5 @@
   description: Check long options against a reviewed schema
   entry: flagcheck scan
   language: python
-  files: '(^|/)([Mm]akefile|GNUmakefile)$|\.mk$|\.(sh|bash|zsh|md|markdown)$|(^|/)\.github/workflows/.*\.ya?ml$'
+  files: '(^|/)([Mm]akefile|GNUmakefile)$|\.mk$|\.(sh|bash|zsh|md|markdown)$|(^|/)\.github/workflows/.*\.ya?ml$|(^|/)(docker-)?compose\.ya?ml$'
   require_serial: true
