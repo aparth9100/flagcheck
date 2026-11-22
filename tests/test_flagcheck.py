@@ -1,3 +1,4 @@
+import argparse
 import contextlib
 import io
 import json
@@ -190,6 +191,26 @@ class SchemaAndCLITests(unittest.TestCase):
         flags, notes = extract_argparse(source, {"p"}, action_arities={"NegativeCountAction": 0})
         self.assertEqual({"-q": {"nargs": 0}, "--quiet": {"nargs": 0}}, flags)
         self.assertFalse(notes)
+
+    def test_boolean_optional_action_matches_argparse(self):
+        source = "p.add_argument('-c', '--cache', '--cache-enabled', action=argparse.BooleanOptionalAction)"
+        flags, notes = extract_argparse(source, {"p"})
+        parser = argparse.ArgumentParser(add_help=False)
+        action = parser.add_argument('-c', '--cache', '--cache-enabled', action=argparse.BooleanOptionalAction)
+        self.assertEqual({name: {"nargs": 0} for name in action.option_strings}, flags)
+        self.assertFalse(notes)
+        self.assertFalse(parser.parse_args(['--no-cache']).cache)
+        self.assertEqual([], scan_command("app --no-cache --cache-enabled", {"app": Command({name: Flag() for name in flags}, complete=True)}))
+
+    def test_boolean_optional_action_negative_declaration_requires_review(self):
+        flags, notes = extract_argparse("p.add_argument('--no-cache', action=argparse.BooleanOptionalAction)", {"p"})
+        self.assertFalse(flags)
+        self.assertIn("requires review", notes[0])
+
+    def test_boolean_optional_action_custom_name_requires_review(self):
+        flags, notes = extract_argparse("p.add_argument('--cache', action=BooleanOptionalAction)", {"p"})
+        self.assertFalse(flags)
+        self.assertIn("unsupported action", notes[0])
 
     def test_inherited_options_require_review(self):
         _, notes = extract_argparse("p = argparse.ArgumentParser(parents=[parent])\np.add_argument('--foo')", {"p"})

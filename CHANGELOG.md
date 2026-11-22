@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.2.0a1 — first public alpha candidate (unreleased)
+## 0.2.0a2.dev0 — development (unreleased)
+
+- Extract positive and generated negative aliases of directly qualified `argparse.BooleanOptionalAction` declarations without importing or executing target code.
+- Clarify installation from the verified initial-alpha commit and publish the actual CI evidence.
+
+## 0.2.0a1 — first public alpha source
 
 - Static long-option validation with an explicit, reviewed JSON command schema.
 - Non-executing extraction of literal argparse declarations, implicit help and reviewed custom action arities.

@@ -135,6 +135,18 @@ def extract_argparse(source: str, receivers: set[str], *,
             action = ast.unparse(action_node)
         if isinstance(action, str) and action in no_value:
             nargs = 0
+        elif (isinstance(action_node, ast.Attribute)
+              and isinstance(action_node.value, ast.Name)
+              and action_node.value.id == "argparse"
+              and action_node.attr == "BooleanOptionalAction"):
+            # argparse creates a negative alias for every long option. A
+            # custom action with a similar name is not assumed equivalent.
+            if any(name.startswith("--no-") for name in names):
+                notes.append(f"line {node.lineno}: negative BooleanOptionalAction declaration requires review")
+                continue
+            names = [alias for name in names for alias in
+                     ([name, "--no-" + name[2:]] if name.startswith("--") else [name])]
+            nargs = 0
         elif isinstance(action, str) and action in {"store", "append", "extend"}:
             nargs = keywords.get("nargs", 1)
         elif isinstance(action, str) and action in overrides:

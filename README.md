@@ -1,6 +1,6 @@
 # Flagcheck — CLI option drift linter
 
-**0.2.0a1 — experimental alpha.**
+**0.2.0a2.dev0 — next-alpha development build.**
 
 Flagcheck detects brittle long-option abbreviations, unknown long options, and explicitly marked deprecated options in static shell commands. It checks against a schema you review, not against a guessed universal list of CLI flags.
 
@@ -12,6 +12,12 @@ Python 3.10+ and PyYAML are required. Install from this source directory:
 
 ```sh
 python -m pip install .
+```
+
+To try the verified first-alpha source directly without cloning, use its pinned Git commit:
+
+```sh
+python -m pip install "git+https://github.com/aparth9100/flagcheck.git@0ebd42df3ef5e311f754f141c9babca1e2574b8b"
 ```
 
 After the alpha is available on PyPI, the equivalent registry installation is `python -m pip install --pre flagcheck`.
@@ -38,7 +44,7 @@ Exit codes: 0 = no finding at the selected severity; 1 = finding; 2 = input/conf
 flagcheck schema-from-source examples/cli_example.py --command mytool --receiver parser --complete
 ```
 
-The command emits JSON to stdout. Save it into a schema file after inspecting it. Repeat `--receiver` for explicitly identified argument groups. The AST extractor recognizes literal `add_argument` declarations, aliases, common actions, value counts and literal deprecation metadata. It never imports the Python file. It recognizes default `-h`/`--help` in a direct `argparse.ArgumentParser` constructor unless disabled; use `--implicit-help` only after verifying an indirect constructor. For a custom action whose arity you have reviewed, specify, for example, `--action-arity NegativeCountAction=0`. For parsers with abbreviation disabled, pass `--no-abbrev`. It cannot infer dynamically constructed arguments, inherited parsers, plugin options or arbitrary runtime behavior. It combines conditional declarations. Only use `--complete` when you have independently verified the parser's complete option inventory; omissions could cause incorrect reports.
+The command emits JSON to stdout. Save it into a schema file after inspecting it. Repeat `--receiver` for explicitly identified argument groups. The AST extractor recognizes literal `add_argument` declarations, aliases, common actions, value counts and literal deprecation metadata. It never imports the Python file. It recognizes default `-h`/`--help` in a direct `argparse.ArgumentParser` constructor unless disabled; use `--implicit-help` only after verifying an indirect constructor. A directly qualified `argparse.BooleanOptionalAction` with positive long options generates their `--no-...` aliases; already-negative declarations or unqualified action names require review. For a custom action whose arity you have reviewed, specify, for example, `--action-arity NegativeCountAction=0`. For parsers with abbreviation disabled, pass `--no-abbrev`. It cannot infer dynamically constructed arguments, inherited parsers, plugin options or arbitrary runtime behavior. It combines conditional declarations. Only use `--complete` when you have independently verified the parser's complete option inventory; omissions could cause incorrect reports.
 
 An example schema:
 
@@ -73,10 +79,19 @@ The scanner intentionally skips unsupported formats, unrecognized commands and a
 python -m unittest discover -s tests -v
 ```
 
-The test suite uses the standard library `unittest`. The included CI workflow targets Python 3.10–3.13 but has not been run on GitHub. The pre-commit hook is configured but is not publicly installable yet. When a repository and release tag exist, configure the hook with `args: [--schema, path/to/schema.json]`. For now you can invoke the CLI directly or use a local pre-commit hook passing that schema.
+The test suite uses the standard library `unittest`. The [initial alpha CI](https://github.com/aparth9100/flagcheck/actions/runs/45015271703) passed on Linux with Python 3.10–3.13 and on Windows and macOS with Python 3.12. To try the pre-commit hook from the pinned initial alpha commit, configure it as follows (replace the example schema path with your reviewed schema):
+
+```yaml
+repos:
+  - repo: https://github.com/aparth9100/flagcheck
+    rev: 0ebd42df3ef5e311f754f141c9babca1e2574b8b
+    hooks:
+      - id: flagcheck
+        args: [--schema, path/to/schema.json]
+```
 
 ## Evidence and next milestone
 
-See `VALIDATION.md` for the original xml2rfc benchmark and `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown. The Phase 2 measurements cover reviewed literal option inventories, original files, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is review of a release candidate, check for existing similar tools and distribution-name availability, and decide whether to release. The distribution name is provisional; registry availability is not verified.
+See `VALIDATION.md` for the original xml2rfc benchmark and `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown. The Phase 2 measurements cover reviewed literal option inventories, original files, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is feedback from a real, opt-in pilot integration and a verified registry release. The distribution name is provisional until successfully registered.
 
-MIT licensed; source, docs and tests prepared with AI assistance for human review. No publication or external adoption is claimed.
+MIT licensed; source, docs and tests prepared with AI assistance for human review. The source is public; no external adoption is claimed.
