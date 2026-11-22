@@ -1,0 +1,43 @@
+{
+  "flagcheck": {
+    "complete": true,
+    "allow_abbrev": false,
+    "flags": {
+      "-h": {"nargs": 0},
+      "--help": {"nargs": 0},
+      "--version": {"nargs": 0}
+    },
+    "subcommands": {
+      "scan": {
+        "complete": true,
+        "allow_abbrev": false,
+        "flags": {
+          "-h": {"nargs": 0},
+          "--help": {"nargs": 0},
+          "--schema": {"nargs": 1},
+          "--format": {"nargs": 1},
+          "--fail-on": {"nargs": 1},
+          "--cmd": {"nargs": 1},
+          "--summary": {"nargs": 0},
+          "--require-match": {"nargs": 0}
+        }
+      },
+      "schema-from-source": {
+        "complete": true,
+        "allow_abbrev": false,
+        "flags": {
+          "-h": {"nargs": 0},
+          "--help": {"nargs": 0},
+          "--command": {"nargs": 1},
+          "--receiver": {"nargs": 1},
+          "--scope": {"nargs": 1},
+          "--discover-groups": {"nargs": 0},
+          "--complete": {"nargs": 0},
+          "--no-abbrev": {"nargs": 0},
+          "--implicit-help": {"nargs": 0},
+          "--action-arity": {"nargs": 1}
+        }
+      }
+    }
+  }
+}

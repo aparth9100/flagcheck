@@ -103,3 +103,18 @@ repos:
 See `VALIDATION.md` for the original xml2rfc benchmark, `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown, and `PHASE6_VALIDATION.md` for the scoped extractor checks against Bandit and PyPA Installer. These measurements cover reviewed literal option inventories, selected original files or snippets, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is feedback from a real, opt-in pilot integration. The first registry release passed its [build and publish workflow](https://github.com/aparth9100/flagcheck/actions/runs/45020748186).
 
 MIT licensed; source, docs and tests prepared with AI assistance for human review. The source is public; no external adoption is claimed.
+
+## Try a pilot in your own CLI project
+
+Flagcheck's own development CI checks the documented commands using a reviewed
+schema. It also tests that the schema agrees with the literal parser declarations.
+Try the same self-check from a checkout of this development branch:
+
+```sh
+flagcheck scan --schema examples/flagcheck-schema.json --summary --require-match README.md PILOT.md .github/workflows/ci.yml
+```
+
+For an opt-in pilot in another project, start with the released alpha and one file
+that contains real CLI examples. See [PILOT.md](PILOT.md) for a small, reversible
+trial and how to report false positives or missed options. Self-use and benchmark
+results are not independent adoption.
