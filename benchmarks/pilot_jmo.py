@@ -54,6 +54,24 @@ EXCERPTS = {
     'docs/examples/github-actions-docker.yml': (29, 102, 158, 289, 301),
 }
 
+# Each previously reviewed flag line mapped to the start of the logical
+# command or Compose argv list. PowerShell (1161) is deliberately excluded.
+LOGICAL_STARTS = {
+    'docs/DOCKER_README.md': {309: 308, 318: 317, 328: 327, 505: 504, 585: 581,
+        625: 623, 638: 634, 1144: 1143, 1207: 1206, 1219: 1217},
+    'docs/VERSION_MANAGEMENT.md': {601: 599},
+    'docs/examples/wizard-examples.md': {534: 533},
+    'docs/examples/attestation-workflows.md': {50: 50, 306: 302, 333: 326, 393: 393, 666: 666},
+    'docs/examples/github-actions-docker.yml': {29: 29, 102: 100, 158: 154, 289: 287, 301: 299},
+    'docker-compose.yml': {19: 16, 65: 62},
+}
+EXTRA = {
+    ('docs/DOCKER_README.md', 659, '--results', 'abbreviation'),
+    ('docs/examples/attestation-workflows.md', 107, '--attest', 'unknown'),
+    ('docs/examples/attestation-workflows.md', 462, '--attest', 'unknown'),
+    ('docs/examples/attestation-workflows.md', 566, '--attest', 'unknown'),
+}
+
 
 def main(root):
     schema = build_schema(root)
@@ -103,9 +121,27 @@ def main(root):
         adapted.extend(findings)
         assert not scan_command(cmd.replace('--results ', '--results-dir '), schema)
 
+    automatic_stats = ScanStats()
+    automatic = []
+    images = {'ghcr.io/jimmy058910/jmo-security:latest': 'jmo', 'jmo-security:latest': 'jmo'}
+    for path in (*MARKDOWN, 'docs/examples/github-actions-docker.yml', 'docker-compose.yml'):
+        automatic.extend(scan_text((root / path).read_text(encoding='utf-8'), schema,
+            'markdown' if path.endswith('.md') else 'yaml', path, stats=automatic_stats,
+            docker_images=images, yaml_examples=True))
+    def key(f, line=None):
+        return f.source, f.line if line is None else line, f.flag, f.code
+    recovered = {key(f, LOGICAL_STARTS[f.source][f.line]) for f in adapted
+                 if f.line in LOGICAL_STARTS[f.source]}
+    expected = {key(f) for f in native} | recovered | EXTRA
+    assert len(adapted) == 25 and len(recovered) == 24
+    assert len(automatic) == len(expected) == 31
+    assert {key(f) for f in automatic} == expected
     print(json.dumps({'native_coverage': asdict(stats),
                       'native_findings': [asdict(f) for f in native],
-                      'adapted_findings': [asdict(f) for f in adapted]}, indent=2))
+                      'adapted_findings': [asdict(f) for f in adapted],
+                      'automatic_coverage': asdict(automatic_stats),
+                      'automatic_findings': [asdict(f) for f in automatic],
+                      'recovered_adapted_findings': len(recovered)}, indent=2))
 
 
 if __name__ == '__main__':

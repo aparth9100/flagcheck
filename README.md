@@ -76,8 +76,18 @@ Each command can also specify `subcommands`, a mapping of subcommand names to co
 
 - Shell scripts (`.sh`, `.bash`, `.zsh`): simple literal command lines, common wrappers, chains, pipelines and backslash continuations. Limited literal `pipenv run`, `uv run` and `uvx [--from PACKAGE] COMMAND` forms are recognized.
 - Makefiles and `.mk`: tab-prefixed recipes, simple loops, continued lines, literal `bash -c`/`-cx` wrappers, automatic filename variables.
-- GitHub Actions workflows: `jobs.*.steps.*.run` scalar values for explicit `bash`/`sh` or default Ubuntu/macOS runners; literal multiline blocks.
+- GitHub Actions workflows: `jobs.*.steps.*.run` scalar values for explicit `bash`/`sh` or default Ubuntu/macOS runners; literal multiline blocks and multiple YAML documents.
 - Markdown: explicitly shell-tagged fenced snippets; console fences with `$ ` prompts.
+- Docker: opt in with `--docker-image IMAGE=COMMAND` for literal `docker run` commands and Compose `command` argv lists using the exact mapped image. Use a reviewed image version whose executable entrypoint matches the named schema command. Repeat the option for multiple images.
+- Compose: `compose.yml`, `compose.yaml`, `docker-compose.yml` and `docker-compose.yaml`; only literal string sequences for `command` and no entrypoint/build/extends/merge overrides. Use `--yaml` to also scan structurally recognized workflow or Compose examples in other YAML files and Markdown YAML fences.
+
+For example, after verifying the image entrypoint and command schema:
+
+```sh
+flagcheck scan --schema examples/schema.json --docker-image example/tool:1=tool --yaml docs/ compose.yaml
+```
+
+Docker options are parsed using a limited explicit inventory; unknown options, overridden entrypoints and dynamic image names are skipped. Values consumed by known Docker options are treated as single tokens; shell expansion can change the actual argv. Image mapping is a user assertion, not a Docker registry lookup or image inspection. Compose includes and interpolation in command lists are not interpreted. Invalid standalone YAML returns an input error; malformed fenced YAML is skipped and counted in `yaml_failures` under `--summary`.
 
 The scanner intentionally skips unsupported formats, unrecognized commands and ambiguous dynamic arguments. It is not a shell parser, a CLI semantic validator, or a substitute for actual CI. It consumes recognized argparse-style short-option clusters and attached values to avoid false long-option matches, but does not lint short option spellings. It does not support custom Make recipe prefixes, arbitrary Make `$(shell ...)` expansions, folded YAML blocks, PowerShell, fish, shell functions, aliases, dynamically constructed commands or all possible nested shell syntax. A finding's line refers to the beginning of the logical command; it can be the first line of a continuation. Treat results as review prompts, not automatic edits.
 
@@ -103,6 +113,8 @@ repos:
 See `VALIDATION.md` for the original xml2rfc benchmark, `PHASE2_VALIDATION.md` for validation against PyPA Build, pip-audit and Microsoft MarkItDown, and `PHASE6_VALIDATION.md` for the scoped extractor checks against Bandit and PyPA Installer. These measurements cover reviewed literal option inventories, selected original files or snippets, deliberate mutations and a Python argparse option-resolution oracle. They are not a general-accuracy claim or independent external adoption evidence. The next milestone is feedback from a real, opt-in pilot integration. The first registry release passed its [build and publish workflow](https://github.com/aparth9100/flagcheck/actions/runs/45020748186).
 
 MIT licensed; source, docs and tests prepared with AI assistance for human review. The source is public; no external adoption is claimed.
+
+See `PHASE9_VALIDATION.md` for the Docker/YAML scanner's pinned JMo pilot results.
 
 ## Try a pilot in your own CLI project
 

@@ -6,6 +6,8 @@
 - Clarify installation from the verified initial-alpha commit and publish the actual CI evidence.
 - Add opt-in function-scoped extraction and automatic discovery of directly assigned argument groups, with unresolved-assignment notes.
 - Add pinned Bandit and PyPA Installer schema and scanner benchmarks; record the successful PyPI alpha release.
+- Add explicit literal Docker image-to-command mappings, Compose argv scanning, multi-document workflows, and opt-in YAML example scanning.
+- Recover 24 of 25 previously manually adapted JMo pilot findings; detect four additional candidates from the same pinned source. PowerShell remains unsupported.
 
 ## 0.2.0a1 — first public alpha (22 November 2026)
 

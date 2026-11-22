@@ -163,6 +163,79 @@ class ScannerTests(unittest.TestCase):
     def test_workflow_ignores_non_job_run(self):
         self.assertEqual([], scan_text("run: tool --bogus", self.schema, "workflow"))
 
+    def test_docker_exact_mapping(self):
+        images = {"example/tool:1": "tool"}
+        for cmd in ('docker run --rm -it -v "$(pwd):/src" example/tool:1 --verb',
+                    'docker run --cpus="2" --env KEY=VALUE example/tool:1 --verb',
+                    'docker run --user $(id -u):$(id -g) example/tool:1 --verb'):
+            with self.subTest(cmd=cmd):
+                f, = scan_command(cmd, self.schema, docker_images=images)
+                self.assertEqual((f.command, f.flag, f.suggestion), ("tool", "--verb", "--verbose"))
+        self.assertEqual([], self.scan('docker run example/tool:1 --verb'))
+
+    def test_docker_unsupported_forms(self):
+        for cmd in ('docker run --entrypoint=other example/tool:1 --bogus',
+                    'docker run --entrypoint other example/tool:1 --bogus',
+                    'docker run --unknown example/tool:1 --bogus',
+                    'docker run --volume --rm example/tool:1 --bogus',
+                    'docker run example/tool:2 --bogus',
+                    'docker run "$IMAGE" --bogus', 'docker run $FLAGS example/tool:1 --bogus',
+                    'docker exec example/tool:1 --bogus', 'docker --context local run example/tool:1 --bogus',
+                    'docker run -e example/tool:1 --bogus'):
+            with self.subTest(cmd=cmd):
+                self.assertEqual([], scan_command(cmd, self.schema, docker_images={"example/tool:1": "tool"}))
+
+    def test_docker_workflow_multi_document(self):
+        doc = 'jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: docker run --rm example/tool:1 --verb\n'
+        findings = scan_text(doc + '---\n' + doc, self.schema, 'workflow', docker_images={"example/tool:1": "tool"})
+        self.assertEqual([(5, '--verb'), (11, '--verb')], [(f.line, f.flag) for f in findings])
+
+    def test_markdown_yaml_examples_opt_in(self):
+        doc = 'Text\n```yaml\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: tool --verb\n```\n```powershell\ntool --bogus\n```'
+        self.assertEqual([], scan_text(doc, self.schema, 'markdown'))
+        f, = scan_text(doc, self.schema, 'markdown', yaml_examples=True)
+        self.assertEqual((7, '--verb'), (f.line, f.flag))
+
+    def test_invalid_markdown_yaml_is_counted(self):
+        stats = ScanStats()
+        doc = '```yaml\nkey: [\n```\n```sh\ntool --verb\n```'
+        self.assertEqual(['--verb'], [f.flag for f in scan_text(doc, self.schema, 'markdown', yaml_examples=True, stats=stats)])
+        self.assertEqual(1, stats.yaml_failures)
+
+    def test_compose_argv_is_not_shell(self):
+        doc = 'services:\n  a:\n    image: example/tool:1\n    command:\n      - --output\n      - "--bogus; tool --bogus"\n      - --verb\n'
+        stats = ScanStats()
+        f, = scan_text(doc, self.schema, 'compose', docker_images={"example/tool:1": "tool"}, stats=stats)
+        self.assertEqual((5, '--verb'), (f.line, f.flag))
+        self.assertEqual(1, stats.matched_invocations)
+        self.assertEqual([], scan_text(doc, self.schema, 'compose'))
+
+    def test_compose_overrides_and_dynamic_values_are_skipped(self):
+        for body in ('image: example/tool:1\n    entrypoint: []\n    command: [--bogus]',
+                     'image: example/tool:1\n    build: .\n    command: [--bogus]',
+                     'image: example/tool:1\n    extends: base\n    command: [--bogus]',
+                     'image: example/tool:1\n    command: [--bogus, "$FLAGS"]',
+                     'image: example/tool:1\n    command: "--bogus"',
+                     'image: example/tool:1\n    image: other\n    command: [--bogus]',
+                     'image: example/tool:1\n    <<: {entrypoint: other}\n    command: [--bogus]'):
+            with self.subTest(body=body):
+                doc = 'services:\n  a:\n    ' + body
+                self.assertEqual([], scan_text(doc, self.schema, 'compose', docker_images={"example/tool:1": "tool"}))
+
+    def test_cli_docker_mapping_and_yaml_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = Path(tmp) / 'schema.json'
+            schema_path.write_text('{"tool":{"complete":true,"flags":{"--verbose":{"nargs":0}}}}')
+            file = Path(tmp) / 'example.yml'
+            file.write_text('services:\n  a:\n    image: example/tool:1\n    command: [--verb]\n')
+            args = ['scan', '--schema', str(schema_path), '--docker-image', 'example/tool:1=tool']
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(1, main([*args, '--yaml', str(file)]))
+                self.assertIn('--verb', out.getvalue())
+                self.assertEqual(2, main([*args, str(file)]))
+                self.assertEqual(2, main([*args, '--docker-image', 'example/tool:1=tool', '--cmd', 'tool --verb']))
+                self.assertEqual(2, main(['scan', '--schema', str(schema_path), '--docker-image', 'example/tool:1=unknown', '--cmd', 'tool --verb']))
+
 
 class SchemaAndCLITests(unittest.TestCase):
     def test_scoped_group_discovery(self):
